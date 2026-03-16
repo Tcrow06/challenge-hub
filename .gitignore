@@ -1,0 +1,29 @@
+# Node
+node_modules/
+yarn-error.log*
+yarn-debug.log*
+npm-debug.log*
+
+# Frontend
+dist/
+coverage/
+*.tsbuildinfo
+
+# Java
+**/target/
+.mvn/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
