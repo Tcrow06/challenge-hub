@@ -1,8 +1,9 @@
 package com.challengehub.exception;
 
-import lombok.Getter;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
+
+import lombok.Getter;
 
 @Getter
 public enum ErrorCode {
@@ -58,6 +59,17 @@ public enum ErrorCode {
     MEDIA_UPLOAD_FAILED(6001, "Media upload url generation failed", HttpStatus.INTERNAL_SERVER_ERROR),
     MEDIA_TOO_LARGE(6002, "Media too large", HttpStatus.BAD_REQUEST),
     MEDIA_INVALID_TYPE(6003, "Invalid media type", HttpStatus.BAD_REQUEST),
+
+    // ==================== 07xxx: Messaging ====================
+    CHAT_CONVERSATION_NOT_FOUND(7001, "Conversation not found", HttpStatus.NOT_FOUND),
+    CHAT_CHANNEL_NOT_FOUND(7002, "Channel not found", HttpStatus.NOT_FOUND),
+    CHAT_CHANNEL_ALREADY_EXISTS(7003, "Channel already exists", HttpStatus.CONFLICT),
+    CHAT_MEMBER_REQUIRED(7004, "Conversation membership required", HttpStatus.FORBIDDEN),
+    CHAT_DM_SELF_NOT_ALLOWED(7005, "Direct message to self is not allowed", HttpStatus.BAD_REQUEST),
+    CHAT_EMPTY_MESSAGE(7006, "Message content is empty", HttpStatus.BAD_REQUEST),
+    CHAT_MESSAGE_NOT_FOUND(7007, "Message not found", HttpStatus.NOT_FOUND),
+    CHAT_MESSAGE_EDIT_WINDOW_EXPIRED(7008, "Message edit window expired", HttpStatus.FORBIDDEN),
+    CHAT_RATE_LIMITED(7009, "Chat rate limited", HttpStatus.TOO_MANY_REQUESTS),
 
     // ==================== 09xxx: General ====================
     FORBIDDEN(9001, "Forbidden", HttpStatus.FORBIDDEN),

@@ -4,7 +4,8 @@ import com.challengehub.dto.response.NotificationResponse;
 
 public interface NotificationService {
 
-    SubmissionService.PageResult<NotificationResponse> getNotifications(String currentUserId, boolean unreadOnly, int page, int size);
+    SubmissionService.PageResult<NotificationResponse> getNotifications(String currentUserId, boolean unreadOnly,
+            int page, int size);
 
     long getUnreadCount(String currentUserId);
 

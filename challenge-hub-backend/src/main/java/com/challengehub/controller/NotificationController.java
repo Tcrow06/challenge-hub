@@ -1,10 +1,8 @@
 package com.challengehub.controller;
 
-import com.challengehub.dto.response.ApiResponse;
-import com.challengehub.dto.response.NotificationResponse;
-import com.challengehub.dto.response.UnreadCountResponse;
-import com.challengehub.service.NotificationService;
-import com.challengehub.service.SubmissionService;
+import java.util.List;
+import java.util.Map;
+
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -14,8 +12,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
-import java.util.Map;
+import com.challengehub.dto.response.ApiResponse;
+import com.challengehub.dto.response.NotificationResponse;
+import com.challengehub.dto.response.UnreadCountResponse;
+import com.challengehub.service.NotificationService;
+import com.challengehub.service.SubmissionService;
 
 @RestController
 @RequestMapping("/api/v1/notifications")
@@ -32,8 +33,7 @@ public class NotificationController {
             @RequestParam(name = "unread_only", defaultValue = "false") boolean unreadOnly,
             @RequestParam(name = "page", defaultValue = "1") int page,
             @RequestParam(name = "size", defaultValue = "10") int size,
-            Authentication authentication
-    ) {
+            Authentication authentication) {
         SubmissionService.PageResult<NotificationResponse> result = notificationService
                 .getNotifications(currentUserId(authentication), unreadOnly, page, size);
         return ResponseEntity.ok(ApiResponse.success(result.items(), metadata(result)));
@@ -48,8 +48,7 @@ public class NotificationController {
     @PatchMapping("/{id}/read")
     public ResponseEntity<ApiResponse<Void>> markRead(
             @PathVariable("id") String notificationId,
-            Authentication authentication
-    ) {
+            Authentication authentication) {
         notificationService.markRead(notificationId, currentUserId(authentication));
         return ResponseEntity.ok(ApiResponse.success(null, "Danh dau da doc thanh cong"));
     }
@@ -69,7 +68,6 @@ public class NotificationController {
                 "page", result.page(),
                 "size", result.size(),
                 "totalElements", result.totalElements(),
-                "totalPages", result.totalPages()
-        );
+                "totalPages", result.totalPages());
     }
 }

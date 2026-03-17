@@ -1,22 +1,23 @@
 package com.challengehub.exception;
 
-import com.challengehub.dto.response.ApiResponse;
+import java.util.List;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
-import java.util.List;
+import com.challengehub.dto.response.ApiResponse;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiResponse<Void>> handleApi(ApiException ex) {
-        return ResponseEntity.status(ex.getErrorCode().getStatusCode())
-            .body(ApiResponse.error(ex.getErrorCode().name(), ex.getEffectiveMessage()));
+        return ResponseEntity.status(ex.getErrorCode().getStatusCode().value())
+                .body(ApiResponse.error(ex.getErrorCode().name(), ex.getEffectiveMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -24,17 +25,7 @@ public class GlobalExceptionHandler {
         List<ApiResponse.FieldError> errors = ex.getBindingResult().getFieldErrors().stream()
                 .map(err -> new ApiResponse.FieldError(err.getField(), err.getDefaultMessage()))
                 .toList();
-        return ResponseEntity.badRequest().body(
-            new ApiResponse<>(
-                false,
-                ErrorCode.VALIDATION_FAILED.getMessage(),
-                null,
-                ErrorCode.VALIDATION_FAILED.name(),
-                errors,
-                null,
-                java.time.Instant.now()
-            )
-        );
+        return ResponseEntity.badRequest().body(ApiResponse.validationError(errors));
     }
 
     @ExceptionHandler(SecurityException.class)

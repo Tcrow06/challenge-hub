@@ -9,15 +9,18 @@ import java.util.List;
 import java.util.Optional;
 
 public interface NotificationRepository extends MongoRepository<NotificationDocument, String> {
-    List<NotificationDocument> findByRecipientIdAndReadOrderByCreatedAtDesc(String recipientId, boolean read);
+    List<NotificationDocument> findByUserIdAndIsReadOrderByCreatedAtDesc(String userId, boolean isRead);
 
-    Page<NotificationDocument> findByRecipientIdOrderByCreatedAtDesc(String recipientId, Pageable pageable);
+    Page<NotificationDocument> findByUserIdOrderByCreatedAtDesc(String userId, Pageable pageable);
 
-    Page<NotificationDocument> findByRecipientIdAndReadOrderByCreatedAtDesc(String recipientId, boolean read, Pageable pageable);
+    Page<NotificationDocument> findByUserIdAndIsReadOrderByCreatedAtDesc(String userId, boolean isRead,
+            Pageable pageable);
 
-    Optional<NotificationDocument> findByIdAndRecipientId(String id, String recipientId);
+    Optional<NotificationDocument> findByIdAndUserId(String id, String userId);
 
-    long countByRecipientIdAndRead(String recipientId, boolean read);
+    long countByUserIdAndIsRead(String userId, boolean isRead);
 
-    List<NotificationDocument> findByRecipientIdAndRead(String recipientId, boolean read);
+    List<NotificationDocument> findByUserIdAndIsRead(String userId, boolean isRead);
+
+    boolean existsByUserIdAndTypeAndReferenceId(String userId, String type, String referenceId);
 }

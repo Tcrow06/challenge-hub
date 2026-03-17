@@ -1,5 +1,19 @@
 package com.challengehub.service.impl;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.HexFormat;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.challengehub.dto.request.LoginRequest;
 import com.challengehub.dto.request.RegisterRequest;
 import com.challengehub.dto.response.AuthResponse;
@@ -10,21 +24,8 @@ import com.challengehub.repository.postgres.UserRepository;
 import com.challengehub.security.JwtProperties;
 import com.challengehub.security.JwtTokenProvider;
 import com.challengehub.service.AuthService;
-import io.jsonwebtoken.Claims;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.http.HttpStatus;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.HexFormat;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
+import io.jsonwebtoken.Claims;
 
 @Service
 @Transactional
@@ -43,10 +44,10 @@ public class AuthServiceImpl implements AuthService {
     private final StringRedisTemplate redisTemplate;
 
     public AuthServiceImpl(UserRepository userRepository,
-                           PasswordEncoder passwordEncoder,
-                           JwtTokenProvider jwtTokenProvider,
-                           JwtProperties jwtProperties,
-                           StringRedisTemplate redisTemplate) {
+            PasswordEncoder passwordEncoder,
+            JwtTokenProvider jwtTokenProvider,
+            JwtProperties jwtProperties,
+            StringRedisTemplate redisTemplate) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtTokenProvider = jwtTokenProvider;
@@ -60,7 +61,8 @@ public class AuthServiceImpl implements AuthService {
             throw new ApiException(com.challengehub.exception.ErrorCode.VALIDATION_DUPLICATE_EMAIL, "Email da ton tai");
         }
         if (userRepository.existsByUsername(request.username())) {
-            throw new ApiException(com.challengehub.exception.ErrorCode.VALIDATION_DUPLICATE_USERNAME, "Username da ton tai");
+            throw new ApiException(com.challengehub.exception.ErrorCode.VALIDATION_DUPLICATE_USERNAME,
+                    "Username da ton tai");
         }
 
         UserEntity user = new UserEntity();
@@ -71,22 +73,26 @@ public class AuthServiceImpl implements AuthService {
         user.setStatus(Enums.UserStatus.ACTIVE);
         user = userRepository.save(user);
 
-        return issueTokens(user, true);
+        AuthResult issuedTokens = issueTokens(user, true);
+        return new AuthResult(toRegisterResponse(user), issuedTokens.refreshToken());
     }
 
     @Override
     public AuthResult login(LoginRequest request) {
         UserEntity user = userRepository.findByEmail(request.email().trim().toLowerCase())
-                .orElseThrow(() -> new ApiException(com.challengehub.exception.ErrorCode.AUTH_INVALID_CREDENTIALS, "Thong tin dang nhap khong dung"));
+                .orElseThrow(() -> new ApiException(com.challengehub.exception.ErrorCode.AUTH_INVALID_CREDENTIALS,
+                        "Thong tin dang nhap khong dung"));
 
         if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(Instant.now())) {
-            throw new ApiException(com.challengehub.exception.ErrorCode.AUTH_ACCOUNT_LOCKED, "Tai khoan dang bi khoa tam thoi");
+            throw new ApiException(com.challengehub.exception.ErrorCode.AUTH_ACCOUNT_LOCKED,
+                    "Tai khoan dang bi khoa tam thoi");
         }
         if (user.getStatus() == Enums.UserStatus.BANNED) {
             throw new ApiException(com.challengehub.exception.ErrorCode.AUTH_ACCOUNT_BANNED, "Tai khoan da bi cam");
         }
         if (user.getStatus() == Enums.UserStatus.SUSPENDED) {
-            throw new ApiException(com.challengehub.exception.ErrorCode.AUTH_ACCOUNT_SUSPENDED, "Tai khoan dang tam khoa");
+            throw new ApiException(com.challengehub.exception.ErrorCode.AUTH_ACCOUNT_SUSPENDED,
+                    "Tai khoan dang tam khoa");
         }
 
         if (!passwordEncoder.matches(request.password(), user.getPassword())) {
@@ -96,7 +102,8 @@ public class AuthServiceImpl implements AuthService {
                 user.setLockedUntil(Instant.now().plus(Duration.ofMinutes(15)));
             }
             userRepository.save(user);
-            throw new ApiException(com.challengehub.exception.ErrorCode.AUTH_INVALID_CREDENTIALS, "Thong tin dang nhap khong dung");
+            throw new ApiException(com.challengehub.exception.ErrorCode.AUTH_INVALID_CREDENTIALS,
+                    "Thong tin dang nhap khong dung");
         }
 
         user.setLoginFailedCount(0);
@@ -109,7 +116,8 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public AuthResult refresh(String refreshToken) {
         if (refreshToken == null || refreshToken.isBlank()) {
-            throw new ApiException(com.challengehub.exception.ErrorCode.AUTH_TOKEN_INVALID, "Refresh token khong hop le");
+            throw new ApiException(com.challengehub.exception.ErrorCode.AUTH_TOKEN_INVALID,
+                    "Refresh token khong hop le");
         }
 
         String tokenHash = sha256(refreshToken);
@@ -119,7 +127,8 @@ public class AuthServiceImpl implements AuthService {
         Object revokedObj = redisTemplate.opsForHash().get(tokenKey, "revoked");
 
         if (userIdObj == null || familyIdObj == null || revokedObj == null) {
-            throw new ApiException(com.challengehub.exception.ErrorCode.AUTH_TOKEN_INVALID, "Refresh token khong hop le");
+            throw new ApiException(com.challengehub.exception.ErrorCode.AUTH_TOKEN_INVALID,
+                    "Refresh token khong hop le");
         }
 
         String familyId = String.valueOf(familyIdObj);
@@ -128,19 +137,21 @@ public class AuthServiceImpl implements AuthService {
 
         if ("1".equals(String.valueOf(revokedObj)) || "1".equals(String.valueOf(blockedObj))) {
             blockFamily(familyId, String.valueOf(userIdObj));
-            throw new ApiException(com.challengehub.exception.ErrorCode.AUTH_REFRESH_REPLAY, "Phat hien refresh replay");
+            throw new ApiException(com.challengehub.exception.ErrorCode.AUTH_REFRESH_REPLAY,
+                    "Phat hien refresh replay");
         }
 
         redisTemplate.opsForHash().put(tokenKey, "revoked", "1");
 
         UserEntity user = userRepository.findById(UUID.fromString(String.valueOf(userIdObj)))
-                .orElseThrow(() -> new ApiException(com.challengehub.exception.ErrorCode.AUTH_TOKEN_INVALID, "Refresh token khong hop le"));
+                .orElseThrow(() -> new ApiException(com.challengehub.exception.ErrorCode.AUTH_TOKEN_INVALID,
+                        "Refresh token khong hop le"));
 
         String newRefreshToken = createRefreshToken();
         storeRefreshToken(newRefreshToken, user.getId().toString(), familyId);
 
         String accessToken = createAccessToken(user);
-        return new AuthResult(toAuthResponse(user, accessToken), newRefreshToken);
+        return new AuthResult(toRefreshResponse(accessToken), newRefreshToken);
     }
 
     @Override
@@ -175,15 +186,14 @@ public class AuthServiceImpl implements AuthService {
         String useFamilyId = familyId == null ? UUID.randomUUID().toString() : familyId;
         storeRefreshToken(refreshToken, user.getId().toString(), useFamilyId);
         String accessToken = createAccessToken(user);
-        return new AuthResult(toAuthResponse(user, accessToken), refreshToken);
+        return new AuthResult(toLoginResponse(user, accessToken), refreshToken);
     }
 
     private String createAccessToken(UserEntity user) {
         String jti = UUID.randomUUID().toString();
         return jwtTokenProvider.generateAccessToken(
                 user.getId().toString(),
-                Map.of("role", user.getRole().name(), "jti", jti)
-        );
+                Map.of("role", user.getRole().name(), "jti", jti));
     }
 
     private void storeRefreshToken(String rawToken, String userId, String familyId) {
@@ -225,8 +235,8 @@ public class AuthServiceImpl implements AuthService {
         redisTemplate.opsForSet().remove(userFamiliesKey, familyId);
     }
 
-    private AuthResponse toAuthResponse(UserEntity user, String accessToken) {
-        return new AuthResponse(
+    private AuthResponse toLoginResponse(UserEntity user, String accessToken) {
+        return AuthResponse.login(
                 accessToken,
                 "Bearer",
                 jwtProperties.getAccessTokenExpirationMs() / 1000,
@@ -236,9 +246,24 @@ public class AuthServiceImpl implements AuthService {
                         user.getEmail(),
                         user.getRole().name(),
                         user.getAvatarUrl(),
-                        user.getDisplayName()
-                )
-        );
+                        user.getDisplayName()));
+    }
+
+    private AuthResponse toRefreshResponse(String accessToken) {
+        return AuthResponse.refresh(
+                accessToken,
+                "Bearer",
+                jwtProperties.getAccessTokenExpirationMs() / 1000);
+    }
+
+    private AuthResponse toRegisterResponse(UserEntity user) {
+        Instant createdAt = user.getCreatedAt() != null ? user.getCreatedAt() : Instant.now();
+        return AuthResponse.register(
+                user.getId().toString(),
+                user.getUsername(),
+                user.getEmail(),
+                user.getRole().name(),
+                createdAt);
     }
 
     private String createRefreshToken() {

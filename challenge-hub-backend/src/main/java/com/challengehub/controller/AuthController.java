@@ -33,39 +33,35 @@ public class AuthController {
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<AuthResponse>> register(
             @Valid @RequestBody RegisterRequest request,
-            HttpServletResponse httpResponse
-    ) {
+            HttpServletResponse httpResponse) {
         AuthService.AuthResult result = authService.register(request);
         attachRefreshCookie(httpResponse, result.refreshToken());
-        return ResponseEntity.status(201).body(ApiResponse.success(result.response(), "Dang ky thanh cong"));
+        return ResponseEntity.status(201).body(ApiResponse.success(result.response()));
     }
 
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<AuthResponse>> login(
             @Valid @RequestBody LoginRequest request,
-            HttpServletResponse httpResponse
-    ) {
+            HttpServletResponse httpResponse) {
         AuthService.AuthResult result = authService.login(request);
         attachRefreshCookie(httpResponse, result.refreshToken());
-        return ResponseEntity.ok(ApiResponse.success(result.response(), "Dang nhap thanh cong"));
+        return ResponseEntity.ok(ApiResponse.success(result.response()));
     }
 
     @PostMapping("/refresh")
     public ResponseEntity<ApiResponse<AuthResponse>> refresh(
             @CookieValue(name = "ch_refresh_token", required = false) String refreshToken,
-            HttpServletResponse httpResponse
-    ) {
+            HttpServletResponse httpResponse) {
         AuthService.AuthResult result = authService.refresh(refreshToken);
         attachRefreshCookie(httpResponse, result.refreshToken());
-        return ResponseEntity.ok(ApiResponse.success(result.response(), "Refresh token thanh cong"));
+        return ResponseEntity.ok(ApiResponse.success(result.response()));
     }
 
     @PostMapping("/logout")
     public ResponseEntity<ApiResponse<Void>> logout(
             @RequestHeader(name = "Authorization", required = false) String accessToken,
             @CookieValue(name = "ch_refresh_token", required = false) String refreshToken,
-            HttpServletResponse httpResponse
-    ) {
+            HttpServletResponse httpResponse) {
         authService.logout(accessToken, refreshToken);
         clearRefreshCookie(httpResponse);
         return ResponseEntity.ok(ApiResponse.success(null, "Dang xuat thanh cong"));

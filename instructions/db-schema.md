@@ -139,6 +139,19 @@ Hệ thống huy hiệu (Gamification) — Ghi nhận thành tích đặc biệt
 
 **Unique Constraint:** `(user_id, badge_id)` — Mỗi badge chỉ cấp 1 lần cho 1 user.
 
+### 1.10. Bảng `submission_score_events`
+
+Bảng idempotency cho side effect cộng điểm của `SubmissionApprovedEvent`.
+
+| Column          | Type      | Constraints                    | Description                        |
+| :-------------- | :-------- | :----------------------------- | :--------------------------------- |
+| `id`            | UUID      | PRIMARY KEY                    |                                    |
+| `submission_id` | UUID      | FK -> submissions.id, NOT NULL | Submission đã được xử lý cộng điểm |
+| `created_at`    | TIMESTAMP | DEFAULT NOW()                  |                                    |
+| `updated_at`    | TIMESTAMP | DEFAULT NOW()                  |                                    |
+
+**Unique Constraint:** `(submission_id)` — mỗi submission chỉ được cộng điểm 1 lần.
+
 ---
 
 ## 2. MongoDB (Logs, Social, Notifications & Messaging)
@@ -172,17 +185,17 @@ Dùng để hiển thị bảng tin (Social Feed) trên ứng dụng.
 ```json
 {
   "_id": "ObjectId",
-  "user_id": "UUID",
-  "type": "JOIN_CHALLENGE | QUIT_CHALLENGE | COMPLETE_TASK | EARN_BADGE | STREAK_MILESTONE",
-  "message": "User A đã hoàn thành ngày 5 của Challenge X",
-  "metadata": {
-    "challenge_id": "UUID",
-    "task_id": "UUID",
-    "badge_id": "UUID"
-  },
-  "created_at": "ISODate"
+  "userId": "UUID",
+  "type": "JOIN_CHALLENGE | COMPLETE_TASK | ...",
+  "referenceId": "String",
+  "createdAt": "ISODate",
+  "message": "String|null",
+  "metadata": { "anyKey": "anyValue" }
 }
 ```
+
+- Trường tối thiểu cho Phase C: `id`, `userId`, `type`, `referenceId`, `createdAt`.
+- `message` và `metadata` là extension fields (optional, phục vụ mở rộng hiển thị).
 
 ### 2.3. Collection `comments`
 
@@ -222,26 +235,27 @@ Lưu trữ thông báo cho người dùng. Hỗ trợ đẩy real-time qua WebSo
 ```json
 {
   "_id": "ObjectId",
-  "recipient_id": "UUID",
-  "type": "SUBMISSION_APPROVED | SUBMISSION_REJECTED | NEW_COMMENT | NEW_REACTION | RANK_CHANGE | BADGE_EARNED | STREAK_WARNING | NEW_PARTICIPANT | PARTICIPANT_QUIT | NEW_CHAT_MESSAGE",
-  "title": "String",
-  "message": "String",
-  "metadata": {
-    "submission_id": "UUID",
-    "challenge_id": "UUID",
-    "comment_id": "ObjectId",
-    "conversation_id": "ObjectId",
-    "chat_message_id": "ObjectId"
+  "userId": "UUID",
+  "type": "SUBMISSION_APPROVED | NEW_PARTICIPANT | ...",
+  "payload": {
+    "title": "String",
+    "message": "String",
+    "metadata": { "anyKey": "anyValue" }
   },
-  "read": false,
-  "created_at": "ISODate"
+  "referenceId": "String",
+  "isRead": false,
+  "createdAt": "ISODate"
 }
 ```
 
+- Trường lõi theo contract Phase C: `id`, `userId`, `type`, `payload`, `isRead`, `createdAt`.
+- `payload` là JSON mở rộng, không đóng cứng schema theo từng loại thông báo.
+
 **Indexes:**
 
-- `{ recipient_id: 1, read: 1, created_at: -1 }` — Truy vấn nhanh thông báo chưa đọc.
-- TTL Index: `{ created_at: 1 }, expireAfterSeconds: 7776000` — Tự xóa sau 90 ngày.
+- `{ userId: 1, isRead: 1, createdAt: -1 }` — Truy vấn nhanh thông báo theo user + trạng thái đọc.
+- Unique partial index: `{ userId: 1, type: 1, referenceId: 1 }` với điều kiện `referenceId` tồn tại và không rỗng.
+- TTL Index: `{ createdAt: 1 }, expireAfterSeconds: 7776000` — Tự xóa sau 90 ngày.
 
 ### 2.6. Collection `chat_conversations`
 
@@ -446,42 +460,45 @@ TTL:     300
 
 ## 4. Chỉ dẫn Implementation (JPA/Spring Data)
 
-- **Naming Strategy:** Sử dụng `snake_case` cho DB và `camelCase` cho Java Entity.
+- **Naming Strategy:** Postgres dùng `snake_case` ở mức physical table/column; API contract và Mongo document dùng `camelCase`.
 - **Auditing:** Sử dụng `@CreatedDate`, `@LastModifiedDate` của Spring Data JPA.
 - **Soft Delete:** Hiện tại không dùng soft delete. Nếu cần trong tương lai, thêm `deleted_at` TIMESTAMP NULLABLE.
 
 ### 4.1. Indexes (Postgres)
 
-| Bảng              | Cột                          | Loại Index |
-| :---------------- | :--------------------------- | :--------- |
-| `users`           | `email`, `username`          | UNIQUE     |
-| `users`           | `status`                     | B-TREE     |
-| `challenges`      | `creator_id`                 | B-TREE     |
-| `challenges`      | `status`                     | B-TREE     |
-| `tasks`           | `challenge_id`               | B-TREE     |
-| `tasks`           | `(challenge_id, day_number)` | UNIQUE     |
-| `user_challenges` | `(user_id, challenge_id)`    | UNIQUE     |
-| `user_challenges` | `challenge_id`               | B-TREE     |
-| `submissions`     | `(task_id, user_id)`         | UNIQUE     |
-| `submissions`     | `user_id`                    | B-TREE     |
-| `submissions`     | `status`                     | B-TREE     |
-| `user_badges`     | `(user_id, badge_id)`        | UNIQUE     |
+| Bảng                      | Cột                          | Loại Index |
+| :------------------------ | :--------------------------- | :--------- |
+| `users`                   | `email`, `username`          | UNIQUE     |
+| `users`                   | `status`                     | B-TREE     |
+| `challenges`              | `creator_id`                 | B-TREE     |
+| `challenges`              | `status`                     | B-TREE     |
+| `tasks`                   | `challenge_id`               | B-TREE     |
+| `tasks`                   | `(challenge_id, day_number)` | UNIQUE     |
+| `user_challenges`         | `(user_id, challenge_id)`    | UNIQUE     |
+| `user_challenges`         | `challenge_id`               | B-TREE     |
+| `submissions`             | `(task_id, user_id)`         | UNIQUE     |
+| `submissions`             | `user_id`                    | B-TREE     |
+| `submissions`             | `status`                     | B-TREE     |
+| `submission_score_events` | `submission_id`              | UNIQUE     |
+| `user_badges`             | `(user_id, badge_id)`        | UNIQUE     |
 
 ### 4.2. Indexes (MongoDB)
 
-| Collection           | Fields                                           | Loại                                   |
-| :------------------- | :----------------------------------------------- | :------------------------------------- |
-| `audit_logs`         | `{ actor_id: 1, timestamp: -1 }`                 | Compound                               |
-| `audit_logs`         | `{ resource_type: 1, resource_id: 1 }`           | Compound                               |
-| `activity_feed`      | `{ user_id: 1, created_at: -1 }`                 | Compound                               |
-| `comments`           | `{ submission_id: 1, created_at: -1 }`           | Compound                               |
-| `reactions`          | `{ submission_id: 1, user_id: 1 }`               | Unique                                 |
-| `notifications`      | `{ recipient_id: 1, read: 1, created_at: -1 }`   | Compound                               |
-| `notifications`      | `{ created_at: 1 }, expireAfterSeconds: 7776000` | TTL                                    |
-| `chat_conversations` | `{ type: 1, updated_at: -1 }`                    | Compound                               |
-| `chat_conversations` | `{ participants_hash: 1 }`                       | Unique (partial cho DIRECT)            |
-| `chat_conversations` | `{ challenge_id: 1, channel_key: 1 }`            | Unique (partial cho CHALLENGE_CHANNEL) |
-| `chat_memberships`   | `{ conversation_id: 1, user_id: 1 }`             | Unique                                 |
-| `chat_memberships`   | `{ user_id: 1, updated_at: -1 }`                 | Compound                               |
-| `chat_messages`      | `{ conversation_id: 1, created_at: -1 }`         | Compound                               |
-| `chat_messages`      | `{ sender_id: 1, created_at: -1 }`               | Compound                               |
+| Collection           | Fields                                          | Loại                                    |
+| :------------------- | :---------------------------------------------- | :-------------------------------------- |
+| `audit_logs`         | `{ actor_id: 1, timestamp: -1 }`                | Compound                                |
+| `audit_logs`         | `{ resource_type: 1, resource_id: 1 }`          | Compound                                |
+| `activity_feed`      | `{ userId: 1, createdAt: -1 }`                  | Compound                                |
+| `activity_feed`      | `{ userId: 1, type: 1, referenceId: 1 }`        | Unique (partial: referenceId non-empty) |
+| `comments`           | `{ submission_id: 1, created_at: -1 }`          | Compound                                |
+| `reactions`          | `{ submission_id: 1, user_id: 1 }`              | Unique                                  |
+| `notifications`      | `{ userId: 1, isRead: 1, createdAt: -1 }`       | Compound                                |
+| `notifications`      | `{ userId: 1, type: 1, referenceId: 1 }`        | Unique (partial: referenceId non-empty) |
+| `notifications`      | `{ createdAt: 1 }, expireAfterSeconds: 7776000` | TTL                                     |
+| `chat_conversations` | `{ type: 1, updated_at: -1 }`                   | Compound                                |
+| `chat_conversations` | `{ participants_hash: 1 }`                      | Unique (partial cho DIRECT)             |
+| `chat_conversations` | `{ challenge_id: 1, channel_key: 1 }`           | Unique (partial cho CHALLENGE_CHANNEL)  |
+| `chat_memberships`   | `{ conversation_id: 1, user_id: 1 }`            | Unique                                  |
+| `chat_memberships`   | `{ user_id: 1, updated_at: -1 }`                | Compound                                |
+| `chat_messages`      | `{ conversation_id: 1, created_at: -1 }`        | Compound                                |
+| `chat_messages`      | `{ sender_id: 1, created_at: -1 }`              | Compound                                |

@@ -13,18 +13,18 @@ import java.util.Map;
 @Getter
 @Setter
 @Document(collection = "notifications")
-@CompoundIndex(name = "idx_notifications_recipient_read_created", def = "{'recipientId': 1, 'read': 1, 'createdAt': -1}")
+@CompoundIndex(name = "idx_notifications_user_read_created", def = "{'userId': 1, 'isRead': 1, 'createdAt': -1}")
+@CompoundIndex(name = "uk_notifications_user_type_reference", def = "{'userId': 1, 'type': 1, 'referenceId': 1}", unique = true, partialFilter = "{'referenceId': {'$exists': true, '$type': 'string', '$ne': ''}}")
 public class NotificationDocument {
 
     @Id
     private String id;
 
-    private String recipientId;
+    private String userId;
     private String type;
-    private String title;
-    private String message;
-    private Map<String, Object> metadata;
-    private boolean read;
+    private Map<String, Object> payload;
+    private String referenceId;
+    private boolean isRead;
 
     @Indexed(expireAfter = "90d")
     private Instant createdAt;

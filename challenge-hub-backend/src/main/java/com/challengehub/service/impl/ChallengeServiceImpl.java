@@ -1,29 +1,47 @@
 package com.challengehub.service.impl;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+
 import com.challengehub.dto.request.CreateChallengeRequest;
 import com.challengehub.dto.request.CreateTaskRequest;
 import com.challengehub.dto.request.UpdateChallengeStatusRequest;
-import com.challengehub.dto.response.ChallengeResponse;
+import com.challengehub.dto.response.ChallengeDetailResponse;
+import com.challengehub.dto.response.ChallengeListResponse;
+import com.challengehub.dto.response.ChallengeParticipationResponse;
 import com.challengehub.dto.response.TaskResponse;
 import com.challengehub.entity.postgres.ChallengeEntity;
 import com.challengehub.entity.postgres.Enums;
+import com.challengehub.entity.postgres.SubmissionEntity;
 import com.challengehub.entity.postgres.TaskEntity;
 import com.challengehub.entity.postgres.UserChallengeEntity;
 import com.challengehub.entity.postgres.UserEntity;
+import com.challengehub.event.ChallengeJoinedEvent;
+import com.challengehub.event.ChallengeQuitEvent;
+import com.challengehub.event.EventPublisher;
 import com.challengehub.exception.ApiException;
 import com.challengehub.repository.postgres.ChallengeRepository;
+import com.challengehub.repository.postgres.SubmissionRepository;
 import com.challengehub.repository.postgres.TaskRepository;
 import com.challengehub.repository.postgres.UserChallengeRepository;
 import com.challengehub.repository.postgres.UserRepository;
 import com.challengehub.service.ChallengeService;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
-import java.util.List;
-import java.util.UUID;
 
 @Service
 @Transactional
@@ -31,37 +49,44 @@ public class ChallengeServiceImpl implements ChallengeService {
 
     private final ChallengeRepository challengeRepository;
     private final TaskRepository taskRepository;
+    private final SubmissionRepository submissionRepository;
     private final UserRepository userRepository;
     private final UserChallengeRepository userChallengeRepository;
+    private final EventPublisher eventPublisher;
 
     public ChallengeServiceImpl(ChallengeRepository challengeRepository,
-                                TaskRepository taskRepository,
-                                UserRepository userRepository,
-                                UserChallengeRepository userChallengeRepository) {
+            TaskRepository taskRepository,
+            SubmissionRepository submissionRepository,
+            UserRepository userRepository,
+            UserChallengeRepository userChallengeRepository,
+            EventPublisher eventPublisher) {
         this.challengeRepository = challengeRepository;
         this.taskRepository = taskRepository;
+        this.submissionRepository = submissionRepository;
         this.userRepository = userRepository;
         this.userChallengeRepository = userChallengeRepository;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<ChallengeResponse> listChallenges() {
-        return challengeRepository.findAllByOrderByCreatedAtDesc()
-                .stream()
-                .map(c -> toResponse(c, null))
-                .toList();
+    public PageResult<ChallengeListResponse> listChallenges(int page, int size) {
+        Pageable pageable = PageRequest.of(normalizePage(page) - 1, normalizeSize(size),
+                Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<ChallengeEntity> challengePage = challengeRepository.findAllByOrderByCreatedAtDesc(pageable);
+        Page<ChallengeListResponse> responsePage = challengePage.map(this::toListResponse);
+        return toPageResult(responsePage);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public ChallengeResponse getChallengeById(String challengeId, String currentUserId) {
+    public ChallengeDetailResponse getChallengeById(String challengeId, String currentUserId) {
         ChallengeEntity challenge = findChallenge(challengeId);
-        return toResponse(challenge, currentUserId);
+        return toDetailResponse(challenge, currentUserId);
     }
 
     @Override
-    public ChallengeResponse createChallenge(CreateChallengeRequest request, String currentUserId, String role) {
+    public ChallengeDetailResponse createChallenge(CreateChallengeRequest request, String currentUserId, String role) {
         ensureRole(role, "CREATOR", "ADMIN");
         UserEntity creator = findUser(currentUserId);
 
@@ -79,18 +104,19 @@ public class ChallengeServiceImpl implements ChallengeService {
         challenge.setStatus(Enums.ChallengeStatus.DRAFT);
 
         challenge = challengeRepository.save(challenge);
-        return toResponse(challenge, currentUserId);
+        return toDetailResponse(challenge, currentUserId);
     }
 
     @Override
-    public ChallengeResponse updateChallengeStatus(String challengeId,
-                                                   UpdateChallengeStatusRequest request,
-                                                   String currentUserId,
-                                                   String role) {
+    public ChallengeDetailResponse updateChallengeStatus(String challengeId,
+            UpdateChallengeStatusRequest request,
+            String currentUserId,
+            String role) {
         ChallengeEntity challenge = findChallenge(challengeId);
         boolean isOwner = challenge.getCreator().getId().toString().equals(currentUserId);
         if (!isOwner && !"ADMIN".equals(role)) {
-            throw new ApiException(com.challengehub.exception.ErrorCode.FORBIDDEN, "Ban khong co quyen thay doi challenge nay");
+            throw new ApiException(com.challengehub.exception.ErrorCode.FORBIDDEN,
+                    "Ban khong co quyen thay doi challenge nay");
         }
 
         Enums.ChallengeStatus from = challenge.getStatus();
@@ -101,38 +127,45 @@ public class ChallengeServiceImpl implements ChallengeService {
             challenge.setStatus(to);
         } else if (from == Enums.ChallengeStatus.PUBLISHED && to == Enums.ChallengeStatus.DRAFT) {
             if (userChallengeRepository.existsByChallenge_Id(challenge.getId())) {
-                throw new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_HAS_PARTICIPANTS, "Khong the thu hoi challenge da co nguoi tham gia");
+                throw new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_HAS_PARTICIPANTS,
+                        "Khong the thu hoi challenge da co nguoi tham gia");
             }
             challenge.setStatus(to);
         } else if (from == Enums.ChallengeStatus.ENDED && to == Enums.ChallengeStatus.ARCHIVED) {
             challenge.setStatus(to);
         } else {
-            throw new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_INVALID_TRANSITION, "Chuyen trang thai challenge khong hop le");
+            throw new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_INVALID_TRANSITION,
+                    "Chuyen trang thai challenge khong hop le");
         }
 
         challenge = challengeRepository.save(challenge);
-        return toResponse(challenge, currentUserId);
+        return toDetailResponse(challenge, currentUserId);
     }
 
     @Override
-    public void joinChallenge(String challengeId, String currentUserId) {
+    public ChallengeParticipationResponse joinChallenge(String challengeId, String currentUserId) {
         ChallengeEntity challenge = findChallenge(challengeId);
         UUID userId = UUID.fromString(currentUserId);
 
         boolean joinable = challenge.getStatus() == Enums.ChallengeStatus.PUBLISHED
-                || (challenge.getStatus() == Enums.ChallengeStatus.ONGOING && Boolean.TRUE.equals(challenge.getAllowLateJoin()));
+                || (challenge.getStatus() == Enums.ChallengeStatus.ONGOING
+                        && Boolean.TRUE.equals(challenge.getAllowLateJoin()));
         if (!joinable) {
-            throw new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_NOT_JOINABLE, "Challenge hien tai khong cho phep tham gia");
+            throw new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_NOT_JOINABLE,
+                    "Challenge hien tai khong cho phep tham gia");
         }
 
         if (userChallengeRepository.existsByUser_IdAndChallenge_Id(userId, challenge.getId())) {
-            throw new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_ALREADY_JOINED, "Ban da tham gia challenge nay");
+            throw new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_ALREADY_JOINED,
+                    "Ban da tham gia challenge nay");
         }
 
         if (challenge.getMaxParticipants() != null) {
-            long activeCount = userChallengeRepository.countByChallenge_IdAndStatus(challenge.getId(), Enums.UserChallengeStatus.ACTIVE);
+            long activeCount = userChallengeRepository.countByChallenge_IdAndStatus(challenge.getId(),
+                    Enums.UserChallengeStatus.ACTIVE);
             if (activeCount >= challenge.getMaxParticipants()) {
-                throw new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_FULL, "Challenge da du so luong nguoi tham gia");
+                throw new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_FULL,
+                        "Challenge da du so luong nguoi tham gia");
             }
         }
 
@@ -141,23 +174,55 @@ public class ChallengeServiceImpl implements ChallengeService {
         userChallenge.setChallenge(challenge);
         userChallenge.setStatus(Enums.UserChallengeStatus.ACTIVE);
         userChallenge.setTotalScore(0);
-        userChallengeRepository.save(userChallenge);
+        userChallenge = userChallengeRepository.save(userChallenge);
+
+        ChallengeJoinedEvent joinedEvent = new ChallengeJoinedEvent(
+                userId.toString(),
+                challenge.getId().toString(),
+                challenge.getCreator().getId().toString(),
+                challenge.getTitle());
+        publishAfterCommit(joinedEvent);
+
+        return new ChallengeParticipationResponse(
+                challenge.getId().toString(),
+                userId.toString(),
+                userChallenge.getStatus(),
+                userChallenge.getJoinedAt(),
+                null);
     }
 
     @Override
-    public void quitChallenge(String challengeId, String currentUserId) {
+    public ChallengeParticipationResponse quitChallenge(String challengeId, String currentUserId) {
         ChallengeEntity challenge = findChallenge(challengeId);
         UUID userId = UUID.fromString(currentUserId);
 
-        UserChallengeEntity userChallenge = userChallengeRepository.findByUser_IdAndChallenge_Id(userId, challenge.getId())
-                .orElseThrow(() -> new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_NOT_JOINED, "Ban chua tham gia challenge nay"));
+        UserChallengeEntity userChallenge = userChallengeRepository
+                .findByUser_IdAndChallenge_Id(userId, challenge.getId())
+                .orElseThrow(() -> new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_NOT_JOINED,
+                        "Ban chua tham gia challenge nay"));
 
         if (userChallenge.getStatus() == Enums.UserChallengeStatus.QUIT) {
-            throw new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_ALREADY_QUIT, "Ban da roi khoi challenge nay");
+            throw new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_ALREADY_QUIT,
+                    "Ban da roi khoi challenge nay");
         }
 
         userChallenge.setStatus(Enums.UserChallengeStatus.QUIT);
-        userChallengeRepository.save(userChallenge);
+        userChallenge = userChallengeRepository.save(userChallenge);
+
+        ChallengeQuitEvent quitEvent = new ChallengeQuitEvent(
+                userId.toString(),
+                challenge.getId().toString(),
+                challenge.getCreator().getId().toString(),
+                challenge.getTitle());
+        publishAfterCommit(quitEvent);
+
+        Instant quitAt = userChallenge.getUpdatedAt() != null ? userChallenge.getUpdatedAt() : Instant.now();
+        return new ChallengeParticipationResponse(
+                challenge.getId().toString(),
+                userId.toString(),
+                userChallenge.getStatus(),
+                null,
+                quitAt);
     }
 
     @Override
@@ -165,13 +230,16 @@ public class ChallengeServiceImpl implements ChallengeService {
         ChallengeEntity challenge = findChallenge(challengeId);
         boolean isOwner = challenge.getCreator().getId().toString().equals(currentUserId);
         if (!isOwner && !"ADMIN".equals(role)) {
-            throw new ApiException(com.challengehub.exception.ErrorCode.FORBIDDEN, "Ban khong co quyen tao task cho challenge nay");
+            throw new ApiException(com.challengehub.exception.ErrorCode.FORBIDDEN,
+                    "Ban khong co quyen tao task cho challenge nay");
         }
         if (challenge.getStatus() != Enums.ChallengeStatus.DRAFT) {
-            throw new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_INVALID_TRANSITION, "Chi co the tao task khi challenge o trang thai DRAFT");
+            throw new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_INVALID_TRANSITION,
+                    "Chi co the tao task khi challenge o trang thai DRAFT");
         }
         if (taskRepository.findByChallenge_IdAndDayNumber(challenge.getId(), request.dayNumber()).isPresent()) {
-            throw new ApiException(com.challengehub.exception.ErrorCode.VALIDATION_FAILED, "Day number da ton tai trong challenge");
+            throw new ApiException(com.challengehub.exception.ErrorCode.VALIDATION_FAILED,
+                    "Day number da ton tai trong challenge");
         }
 
         TaskEntity task = new TaskEntity();
@@ -182,28 +250,66 @@ public class ChallengeServiceImpl implements ChallengeService {
         task.setMaxScore(request.maxScore());
         task = taskRepository.save(task);
 
-        return toTaskResponse(task, isUnlocked(challenge, task));
+        return toTaskResponse(task, isUnlocked(challenge, task), null);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<TaskResponse> getTasks(String challengeId, String currentUserId) {
         ChallengeEntity challenge = findChallenge(challengeId);
-        return taskRepository.findByChallenge_Id(challenge.getId())
+        List<TaskEntity> tasks = taskRepository.findByChallenge_Id(challenge.getId())
                 .stream()
                 .sorted((a, b) -> Integer.compare(a.getDayNumber(), b.getDayNumber()))
-                .map(task -> toTaskResponse(task, isUnlocked(challenge, task)))
+                .toList();
+
+        Map<UUID, SubmissionEntity> mySubmissionsByTaskId = Collections.emptyMap();
+        if (currentUserId != null && !tasks.isEmpty()) {
+            UUID userId = UUID.fromString(currentUserId);
+            List<UUID> taskIds = tasks.stream().map(TaskEntity::getId).toList();
+            mySubmissionsByTaskId = submissionRepository.findByTask_IdInAndUser_Id(taskIds, userId)
+                    .stream()
+                    .collect(Collectors.toMap(submission -> submission.getTask().getId(), Function.identity()));
+        }
+
+        Map<UUID, SubmissionEntity> submissionsLookup = mySubmissionsByTaskId;
+        return tasks.stream()
+                .map(task -> toTaskResponse(
+                        task,
+                        isUnlocked(challenge, task),
+                        toMySubmissionView(submissionsLookup.get(task.getId()))))
                 .toList();
     }
 
+    private int normalizePage(int page) {
+        return page < 1 ? 1 : page;
+    }
+
+    private int normalizeSize(int size) {
+        if (size < 1) {
+            return 10;
+        }
+        return Math.min(size, 50);
+    }
+
+    private PageResult<ChallengeListResponse> toPageResult(Page<ChallengeListResponse> page) {
+        return new PageResult<>(
+                page.getContent(),
+                page.getNumber() + 1,
+                page.getSize(),
+                page.getTotalElements(),
+                page.getTotalPages());
+    }
+
     private ChallengeEntity findChallenge(String challengeId) {
-        return challengeRepository.findById(UUID.fromString(challengeId))
-                .orElseThrow(() -> new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_NOT_FOUND, "Khong tim thay challenge"));
+        return challengeRepository.findById(Objects.requireNonNull(UUID.fromString(challengeId)))
+                .orElseThrow(() -> new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_NOT_FOUND,
+                        "Khong tim thay challenge"));
     }
 
     private UserEntity findUser(String userId) {
-        return userRepository.findById(UUID.fromString(userId))
-                .orElseThrow(() -> new ApiException(com.challengehub.exception.ErrorCode.NOT_FOUND, "Khong tim thay nguoi dung"));
+        return userRepository.findById(Objects.requireNonNull(UUID.fromString(userId)))
+                .orElseThrow(() -> new ApiException(com.challengehub.exception.ErrorCode.NOT_FOUND,
+                        "Khong tim thay nguoi dung"));
     }
 
     private void ensureRole(String role, String... allowedRoles) {
@@ -212,21 +318,26 @@ public class ChallengeServiceImpl implements ChallengeService {
                 return;
             }
         }
-        throw new ApiException(com.challengehub.exception.ErrorCode.FORBIDDEN, "Ban khong co quyen thuc hien hanh dong nay");
+        throw new ApiException(com.challengehub.exception.ErrorCode.FORBIDDEN,
+                "Ban khong co quyen thuc hien hanh dong nay");
     }
 
     private void validatePublishPreconditions(ChallengeEntity challenge) {
         long taskCount = taskRepository.findByChallenge_Id(challenge.getId()).size();
         if (taskCount < 1) {
-            throw new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_MISSING_TASKS, "Challenge can it nhat 1 task de publish");
+            throw new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_MISSING_TASKS,
+                    "Challenge can it nhat 1 task de publish");
         }
-        if (challenge.getStartDate() == null || challenge.getEndDate() == null || !challenge.getStartDate().isBefore(challenge.getEndDate())) {
-            throw new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_MISSING_DATES, "Challenge can start_date va end_date hop le");
+        if (challenge.getStartDate() == null || challenge.getEndDate() == null
+                || !challenge.getStartDate().isBefore(challenge.getEndDate())) {
+            throw new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_MISSING_DATES,
+                    "Challenge can start_date va end_date hop le");
         }
     }
 
     private boolean isUnlocked(ChallengeEntity challenge, TaskEntity task) {
-        if (challenge.getStatus() == Enums.ChallengeStatus.DRAFT || challenge.getStatus() == Enums.ChallengeStatus.PUBLISHED) {
+        if (challenge.getStatus() == Enums.ChallengeStatus.DRAFT
+                || challenge.getStatus() == Enums.ChallengeStatus.PUBLISHED) {
             return false;
         }
         if (challenge.getTaskUnlockMode() == Enums.TaskUnlockMode.ALL_AT_ONCE) {
@@ -239,14 +350,29 @@ public class ChallengeServiceImpl implements ChallengeService {
         return !Instant.now().isBefore(unlockAt);
     }
 
-    private ChallengeResponse toResponse(ChallengeEntity challenge, String currentUserId) {
+    private ChallengeListResponse toListResponse(ChallengeEntity challenge) {
+        long participantCount = userChallengeRepository.countByChallenge_IdAndStatus(challenge.getId(),
+                Enums.UserChallengeStatus.ACTIVE);
+        return new ChallengeListResponse(
+                challenge.getId().toString(),
+                challenge.getTitle(),
+                challenge.getDescription(),
+                challenge.getStatus(),
+                challenge.getStartDate(),
+                challenge.getEndDate(),
+                participantCount);
+    }
+
+    private ChallengeDetailResponse toDetailResponse(ChallengeEntity challenge, String currentUserId) {
         int taskCount = taskRepository.findByChallenge_Id(challenge.getId()).size();
-        long participantCount = userChallengeRepository.countByChallenge_IdAndStatus(challenge.getId(), Enums.UserChallengeStatus.ACTIVE);
+        long participantCount = userChallengeRepository.countByChallenge_IdAndStatus(challenge.getId(),
+                Enums.UserChallengeStatus.ACTIVE);
         Boolean isJoined = null;
         if (currentUserId != null) {
-            isJoined = userChallengeRepository.existsByUser_IdAndChallenge_Id(UUID.fromString(currentUserId), challenge.getId());
+            isJoined = userChallengeRepository.existsByUser_IdAndChallenge_Id(UUID.fromString(currentUserId),
+                    challenge.getId());
         }
-        return new ChallengeResponse(
+        return new ChallengeDetailResponse(
                 challenge.getId().toString(),
                 challenge.getTitle(),
                 challenge.getDescription(),
@@ -260,25 +386,48 @@ public class ChallengeServiceImpl implements ChallengeService {
                 challenge.getTaskUnlockMode(),
                 taskCount,
                 participantCount,
-                new ChallengeResponse.CreatorView(
+                new ChallengeDetailResponse.CreatorView(
                         challenge.getCreator().getId().toString(),
                         challenge.getCreator().getUsername(),
-                        challenge.getCreator().getAvatarUrl()
-                ),
+                        challenge.getCreator().getAvatarUrl()),
                 isJoined,
                 challenge.getCreatedAt(),
-                challenge.getUpdatedAt()
-        );
+                challenge.getUpdatedAt());
     }
 
-    private TaskResponse toTaskResponse(TaskEntity task, boolean unlocked) {
+    private TaskResponse toTaskResponse(TaskEntity task,
+            boolean unlocked,
+            TaskResponse.MySubmissionView mySubmission) {
         return new TaskResponse(
                 task.getId().toString(),
                 task.getDayNumber(),
                 task.getTitle(),
                 task.getContent(),
                 task.getMaxScore(),
-                unlocked
-        );
+                unlocked,
+                mySubmission);
+    }
+
+    private TaskResponse.MySubmissionView toMySubmissionView(SubmissionEntity submission) {
+        if (submission == null) {
+            return null;
+        }
+        return new TaskResponse.MySubmissionView(
+                submission.getId().toString(),
+                submission.getStatus(),
+                submission.getScore());
+    }
+
+    private void publishAfterCommit(com.challengehub.event.DomainEvent event) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    eventPublisher.publish(event);
+                }
+            });
+            return;
+        }
+        eventPublisher.publish(event);
     }
 }
