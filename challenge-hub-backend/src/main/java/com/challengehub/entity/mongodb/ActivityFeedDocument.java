@@ -1,7 +1,6 @@
 package com.challengehub.entity.mongodb;
 
 import java.time.Instant;
-import java.util.Map;
 
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.CompoundIndex;
@@ -23,7 +22,5 @@ public class ActivityFeedDocument {
     private String userId;
     private String type;
     private String referenceId;
-    private String message;
-    private Map<String, Object> metadata;
     private Instant createdAt;
 }

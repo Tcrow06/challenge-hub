@@ -30,12 +30,14 @@ public class NotificationController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<NotificationResponse>>> getNotifications(
-            @RequestParam(name = "unread_only", defaultValue = "false") boolean unreadOnly,
+            @RequestParam(name = "unreadOnly", required = false) Boolean unreadOnly,
+            @RequestParam(name = "unread_only", required = false) Boolean unreadOnlyLegacy,
             @RequestParam(name = "page", defaultValue = "1") int page,
             @RequestParam(name = "size", defaultValue = "10") int size,
             Authentication authentication) {
+        boolean effectiveUnreadOnly = unreadOnly != null ? unreadOnly : Boolean.TRUE.equals(unreadOnlyLegacy);
         SubmissionService.PageResult<NotificationResponse> result = notificationService
-                .getNotifications(currentUserId(authentication), unreadOnly, page, size);
+                .getNotifications(currentUserId(authentication), effectiveUnreadOnly, page, size);
         return ResponseEntity.ok(ApiResponse.success(result.items(), metadata(result)));
     }
 

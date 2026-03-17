@@ -188,14 +188,11 @@ Dùng để hiển thị bảng tin (Social Feed) trên ứng dụng.
   "userId": "UUID",
   "type": "JOIN_CHALLENGE | COMPLETE_TASK | ...",
   "referenceId": "String",
-  "createdAt": "ISODate",
-  "message": "String|null",
-  "metadata": { "anyKey": "anyValue" }
+  "createdAt": "ISODate"
 }
 ```
 
-- Trường tối thiểu cho Phase C: `id`, `userId`, `type`, `referenceId`, `createdAt`.
-- `message` và `metadata` là extension fields (optional, phục vụ mở rộng hiển thị).
+- Contract Phase C cho activity feed: `id`, `userId`, `type`, `referenceId`, `createdAt`.
 
 ### 2.3. Collection `comments`
 
@@ -237,11 +234,7 @@ Lưu trữ thông báo cho người dùng. Hỗ trợ đẩy real-time qua WebSo
   "_id": "ObjectId",
   "userId": "UUID",
   "type": "SUBMISSION_APPROVED | NEW_PARTICIPANT | ...",
-  "payload": {
-    "title": "String",
-    "message": "String",
-    "metadata": { "anyKey": "anyValue" }
-  },
+  "payload": { "anyKey": "anyValue" },
   "referenceId": "String",
   "isRead": false,
   "createdAt": "ISODate"
@@ -249,7 +242,8 @@ Lưu trữ thông báo cho người dùng. Hỗ trợ đẩy real-time qua WebSo
 ```
 
 - Trường lõi theo contract Phase C: `id`, `userId`, `type`, `payload`, `isRead`, `createdAt`.
-- `payload` là JSON mở rộng, không đóng cứng schema theo từng loại thông báo.
+- `payload` là JSON mở rộng, không đóng cứng các field như `title`/`message`.
+- `referenceId` là trường kỹ thuật để dedupe theo event nguồn.
 
 **Indexes:**
 

@@ -1,5 +1,6 @@
 package com.challengehub.service.impl;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -86,48 +87,81 @@ public class NotificationServiceImpl implements NotificationService {
         return Math.min(size, 50);
     }
 
-    private String trimToNull(String value) {
-        if (value == null) {
-            return null;
-        }
-        String trimmed = value.trim();
-        return trimmed.isEmpty() ? null : trimmed;
-    }
-
-    private String asString(Object value) {
-        if (value == null) {
-            return null;
-        }
-        return value instanceof String ? (String) value : String.valueOf(value);
-    }
-
-    private Map<String, Object> toMetadata(Object value) {
-        if (!(value instanceof Map<?, ?> raw)) {
+    private Map<String, Object> normalizePayload(Map<String, Object> payload) {
+        if (payload == null || payload.isEmpty()) {
             return Map.of();
         }
+        Map<String, Object> normalized = normalizeMap(payload);
+        return normalized.isEmpty() ? Map.of() : normalized;
+    }
 
-        Map<String, Object> metadata = new LinkedHashMap<>();
+    private Map<String, Object> normalizeMap(Map<?, ?> raw) {
+        Map<String, Object> normalized = new LinkedHashMap<>();
         for (Map.Entry<?, ?> entry : raw.entrySet()) {
             if (!(entry.getKey() instanceof String key)) {
                 continue;
             }
-            String normalizedKey = trimToNull(key);
+            String normalizedKey = normalizeKey(key);
             if (normalizedKey == null) {
                 continue;
             }
-            metadata.put(normalizedKey, entry.getValue());
+            normalized.put(normalizedKey, normalizeValue(entry.getValue()));
         }
-        return metadata;
+        return normalized;
+    }
+
+    private Object normalizeValue(Object value) {
+        if (value instanceof Map<?, ?> nestedMap) {
+            return normalizeMap(nestedMap);
+        }
+        if (value instanceof List<?> list) {
+            List<Object> normalizedList = new ArrayList<>(list.size());
+            for (Object element : list) {
+                normalizedList.add(normalizeValue(element));
+            }
+            return normalizedList;
+        }
+        return value;
+    }
+
+    private String normalizeKey(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+
+        StringBuilder builder = new StringBuilder(trimmed.length());
+        boolean uppercaseNext = false;
+        for (char currentChar : trimmed.toCharArray()) {
+            if (currentChar == '_' || currentChar == '-' || Character.isWhitespace(currentChar)) {
+                uppercaseNext = true;
+                continue;
+            }
+            if (builder.length() == 0) {
+                builder.append(Character.toLowerCase(currentChar));
+                uppercaseNext = false;
+                continue;
+            }
+            if (uppercaseNext) {
+                builder.append(Character.toUpperCase(currentChar));
+                uppercaseNext = false;
+            } else {
+                builder.append(currentChar);
+            }
+        }
+
+        return builder.isEmpty() ? null : builder.toString();
     }
 
     private NotificationResponse toResponse(NotificationDocument doc) {
-        Map<String, Object> payload = doc.getPayload() == null ? Map.of() : doc.getPayload();
         return new NotificationResponse(
                 doc.getId(),
+                doc.getUserId(),
                 doc.getType(),
-                asString(payload.get("title")),
-                asString(payload.get("message")),
-                toMetadata(payload.get("metadata")),
+                normalizePayload(doc.getPayload()),
                 doc.isRead(),
                 doc.getCreatedAt());
     }

@@ -31,21 +31,21 @@ public class SubmissionApprovedStreakServiceImpl implements SubmissionApprovedSt
                 .orElseThrow(() -> new ApiException(com.challengehub.exception.ErrorCode.NOT_FOUND,
                         "Khong tim thay nguoi dung"));
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate eventDate = event.getOccurredAt().atZone(ZoneOffset.UTC).toLocalDate();
         LocalDate lastDate = user.getStreakLastDate();
 
-        if (today.equals(lastDate)) {
+        if (eventDate.equals(lastDate)) {
             return;
         }
 
-        if (lastDate != null && lastDate.equals(today.minusDays(1))) {
+        if (lastDate != null && lastDate.equals(eventDate.minusDays(1))) {
             int currentStreak = user.getStreakCount() == null ? 0 : user.getStreakCount();
             user.setStreakCount(currentStreak + 1);
         } else {
             user.setStreakCount(1);
         }
 
-        user.setStreakLastDate(today);
+        user.setStreakLastDate(eventDate);
         userRepository.save(user);
     }
 }

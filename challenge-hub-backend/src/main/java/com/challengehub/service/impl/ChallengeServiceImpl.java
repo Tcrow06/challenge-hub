@@ -16,8 +16,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.challengehub.dto.request.CreateChallengeRequest;
 import com.challengehub.dto.request.CreateTaskRequest;
@@ -181,7 +179,7 @@ public class ChallengeServiceImpl implements ChallengeService {
                 challenge.getId().toString(),
                 challenge.getCreator().getId().toString(),
                 challenge.getTitle());
-        publishAfterCommit(joinedEvent);
+        eventPublisher.publish(joinedEvent);
 
         return new ChallengeParticipationResponse(
                 challenge.getId().toString(),
@@ -214,7 +212,7 @@ public class ChallengeServiceImpl implements ChallengeService {
                 challenge.getId().toString(),
                 challenge.getCreator().getId().toString(),
                 challenge.getTitle());
-        publishAfterCommit(quitEvent);
+        eventPublisher.publish(quitEvent);
 
         Instant quitAt = userChallenge.getUpdatedAt() != null ? userChallenge.getUpdatedAt() : Instant.now();
         return new ChallengeParticipationResponse(
@@ -416,18 +414,5 @@ public class ChallengeServiceImpl implements ChallengeService {
                 submission.getId().toString(),
                 submission.getStatus(),
                 submission.getScore());
-    }
-
-    private void publishAfterCommit(com.challengehub.event.DomainEvent event) {
-        if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    eventPublisher.publish(event);
-                }
-            });
-            return;
-        }
-        eventPublisher.publish(event);
     }
 }

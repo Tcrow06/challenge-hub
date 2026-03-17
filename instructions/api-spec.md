@@ -649,7 +649,7 @@ Resubmit (cập nhật bài nộp bị REJECTED). **Access: USER (owner)**
 
 Xem lịch sử bài nộp của bản thân. **Access: USER**
 
-**Query Parameters:** Pagination + `challengeId` (optional filter), `status` (optional filter).
+**Query Parameters:** Pagination + `challengeId` (optional filter), `status` (optional filter). Legacy alias `challenge_id` vẫn được hỗ trợ để tương thích ngược.
 
 **Response (200):**
 
@@ -711,7 +711,7 @@ Duyệt/Từ chối bài nộp. **Access: MODERATOR / ADMIN**
 
 **Response (200):** Submission object đã cập nhật (cùng format như GET `/api/v1/submissions/{id}`).
 
-**Side effect (Phase C):** khi cập nhật sang `APPROVED`, backend publish `SubmissionApprovedEvent` sau khi transaction commit.
+**Side effect (Phase C):** khi cập nhật sang `APPROVED`, backend publish `SubmissionApprovedEvent` trong transaction; listeners xử lý async ở pha `AFTER_COMMIT`.
 
 **Errors:** `SUBMISSION_NOT_FOUND`, `FORBIDDEN`, `SUBMISSION_SCORE_EXCEEDED`, `VALIDATION_FAILED`
 
@@ -731,7 +731,7 @@ Xem chi tiết 1 bài nộp. **Access: USER (owner) / MODERATOR / ADMIN**
 
 Lấy danh sách bài nộp chờ duyệt. **Access: MODERATOR / ADMIN**
 
-**Query Parameters:** Pagination + `challengeId` (optional filter).
+**Query Parameters:** Pagination + `challengeId` (optional filter). Legacy alias `challenge_id` vẫn được hỗ trợ để tương thích ngược.
 
 **Response (200):** Danh sách submissions (format như `/api/v1/submissions/me`) với `status = PENDING`, wrapper `ApiResponse<List<SubmissionResponse>>` và `meta` phân trang.
 
@@ -797,14 +797,14 @@ Lấy Activity Feed. **Access: USER**
   "data": [
     {
       "id": "objectid",
+      "userId": "uuid",
       "type": "COMPLETE_TASK",
-      "message": null,
+      "referenceId": "uuid",
       "user": {
         "id": "uuid",
         "username": "string",
         "avatarUrl": "string|null"
       },
-      "metadata": null,
       "createdAt": "timestamp"
     }
   ],
@@ -813,7 +813,7 @@ Lấy Activity Feed. **Access: USER**
 }
 ```
 
-- `message` và `metadata` là optional theo DTO hiện tại.
+- Feed contract Phase C dùng các trường lõi: `id`, `userId`, `type`, `referenceId`, `createdAt`.
 
 ---
 
@@ -838,8 +838,8 @@ Gửi bình luận. **Access: USER**
   "data": {
     "id": "objectid",
     "content": "string",
-    "user": { "id": "uuid", "username": "string", "avatar_url": "string|null" },
-    "created_at": "timestamp"
+    "user": { "id": "uuid", "username": "string", "avatarUrl": "string|null" },
+    "createdAt": "timestamp"
   }
 }
 ```
@@ -877,7 +877,7 @@ Toggle cảm xúc. **Access: USER**
   "data": {
     "reacted": true,
     "type": "FIRE",
-    "reaction_counts": { "LIKE": 5, "HEART": 3, "FIRE": 12 }
+    "reactionCounts": { "LIKE": 5, "HEART": 3, "FIRE": 12 }
   }
 }
 ```
@@ -896,7 +896,7 @@ Xóa bình luận. **Access: USER (ownership) / ADMIN**
 
 Lấy danh sách thông báo. **Access: USER**
 
-**Query Parameters:** Pagination + `unreadOnly` (boolean, default false).
+**Query Parameters:** Pagination + `unreadOnly` (boolean, default false). Legacy alias `unread_only` vẫn được hỗ trợ để tương thích ngược.
 
 **Response (200):**
 
@@ -906,11 +906,21 @@ Lấy danh sách thông báo. **Access: USER**
   "data": [
     {
       "id": "objectid",
+      "userId": "uuid",
       "type": "SUBMISSION_APPROVED",
-      "title": "Bài nộp đã được duyệt",
-      "message": "Bài nộp ngày 5 của Challenge X đạt 8/10 điểm",
-      "metadata": { "submissionId": "uuid", "challengeId": "uuid" },
-      "read": false,
+      "payload": {
+        "title": "Bài nộp đã được duyệt",
+        "message": "Bài nộp của bạn đạt 8/10 điểm",
+        "submissionId": "uuid",
+        "challengeId": "uuid",
+        "taskId": "uuid",
+        "reviewerId": "uuid",
+        "score": 8,
+        "maxScore": 10,
+        "eventId": "uuid",
+        "occurredAt": "timestamp"
+      },
+      "isRead": false,
       "createdAt": "timestamp"
     }
   ],

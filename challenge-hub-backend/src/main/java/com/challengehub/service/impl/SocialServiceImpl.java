@@ -1,5 +1,21 @@
 package com.challengehub.service.impl;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.challengehub.dto.response.ActivityFeedResponse;
 import com.challengehub.dto.response.LeaderboardResponse;
 import com.challengehub.entity.mongodb.ActivityFeedDocument;
@@ -14,22 +30,6 @@ import com.challengehub.repository.postgres.SubmissionRepository;
 import com.challengehub.repository.postgres.UserRepository;
 import com.challengehub.service.SocialService;
 import com.challengehub.service.SubmissionService;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.ZSetOperations;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
 
 @Service
 @Transactional(readOnly = true)
@@ -42,10 +42,10 @@ public class SocialServiceImpl implements SocialService {
     private final ActivityFeedRepository activityFeedRepository;
 
     public SocialServiceImpl(StringRedisTemplate redisTemplate,
-                             ChallengeRepository challengeRepository,
-                             UserRepository userRepository,
-                             SubmissionRepository submissionRepository,
-                             ActivityFeedRepository activityFeedRepository) {
+            ChallengeRepository challengeRepository,
+            UserRepository userRepository,
+            SubmissionRepository submissionRepository,
+            ActivityFeedRepository activityFeedRepository) {
         this.redisTemplate = redisTemplate;
         this.challengeRepository = challengeRepository;
         this.userRepository = userRepository;
@@ -56,7 +56,8 @@ public class SocialServiceImpl implements SocialService {
     @Override
     public LeaderboardResponse getLeaderboard(String challengeId, int top, String currentUserId) {
         ChallengeEntity challenge = challengeRepository.findById(UUID.fromString(challengeId))
-                .orElseThrow(() -> new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_NOT_FOUND, "Khong tim thay challenge"));
+                .orElseThrow(() -> new ApiException(com.challengehub.exception.ErrorCode.CHALLENGE_NOT_FOUND,
+                        "Khong tim thay challenge"));
 
         int normalizedTop = top <= 0 ? 50 : Math.min(top, 100);
         String key = "leaderboard:" + challenge.getId();
@@ -96,10 +97,10 @@ public class SocialServiceImpl implements SocialService {
                 long tasksCompleted = approvedCountByUser.getOrDefault(uid, 0L);
                 rankings.add(new LeaderboardResponse.RankingItem(
                         rank,
-                        new LeaderboardResponse.UserView(user.getId().toString(), user.getUsername(), user.getAvatarUrl()),
+                        new LeaderboardResponse.UserView(user.getId().toString(), user.getUsername(),
+                                user.getAvatarUrl()),
                         totalScore,
-                        tasksCompleted
-                ));
+                        tasksCompleted));
                 rank++;
             }
         }
@@ -112,8 +113,7 @@ public class SocialServiceImpl implements SocialService {
                 long tasksCompleted = submissionRepository.countByTask_Challenge_IdAndUser_IdAndStatus(
                         challenge.getId(),
                         UUID.fromString(currentUserId),
-                        Enums.SubmissionStatus.APPROVED
-                );
+                        Enums.SubmissionStatus.APPROVED);
                 myRank = new LeaderboardResponse.MyRank(rank + 1, score.longValue(), tasksCompleted);
             }
         }
@@ -123,7 +123,8 @@ public class SocialServiceImpl implements SocialService {
 
     @Override
     public SubmissionService.PageResult<ActivityFeedResponse> getFeed(int page, int size) {
-        Pageable pageable = PageRequest.of(normalizePage(page) - 1, normalizeSize(size), Sort.by(Sort.Direction.DESC, "createdAt"));
+        Pageable pageable = PageRequest.of(normalizePage(page) - 1, normalizeSize(size),
+                Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<ActivityFeedDocument> feedPage = activityFeedRepository.findAllByOrderByCreatedAtDesc(pageable);
 
         List<UUID> userIds = feedPage.getContent().stream()
@@ -141,10 +142,17 @@ public class SocialServiceImpl implements SocialService {
                     if (doc.getUserId() != null && !doc.getUserId().isBlank()) {
                         UserEntity user = usersById.get(UUID.fromString(doc.getUserId()));
                         if (user != null) {
-                            userView = new ActivityFeedResponse.UserView(user.getId().toString(), user.getUsername(), user.getAvatarUrl());
+                            userView = new ActivityFeedResponse.UserView(user.getId().toString(), user.getUsername(),
+                                    user.getAvatarUrl());
                         }
                     }
-                    return new ActivityFeedResponse(doc.getId(), doc.getType(), doc.getMessage(), userView, doc.getMetadata(), doc.getCreatedAt());
+                    return new ActivityFeedResponse(
+                            doc.getId(),
+                            doc.getUserId(),
+                            doc.getType(),
+                            doc.getReferenceId(),
+                            userView,
+                            doc.getCreatedAt());
                 })
                 .toList();
 
@@ -153,8 +161,7 @@ public class SocialServiceImpl implements SocialService {
                 feedPage.getNumber() + 1,
                 feedPage.getSize(),
                 feedPage.getTotalElements(),
-                feedPage.getTotalPages()
-        );
+                feedPage.getTotalPages());
     }
 
     private int normalizePage(int page) {

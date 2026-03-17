@@ -11,8 +11,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.challengehub.dto.request.CreateSubmissionRequest;
 import com.challengehub.dto.request.UpdateSubmissionStatusRequest;
@@ -100,7 +98,7 @@ public class SubmissionServiceImpl implements SubmissionService {
                 challenge.getId().toString(),
                 task.getId().toString(),
                 request.mediaId());
-        publishAfterCommit(submissionCreatedEvent);
+        eventPublisher.publish(submissionCreatedEvent);
 
         return toCreateResponse(submission);
     }
@@ -197,7 +195,7 @@ public class SubmissionServiceImpl implements SubmissionService {
                     reviewerId,
                     submission.getScore(),
                     submission.getTask().getMaxScore());
-            publishAfterCommit(submissionApprovedEvent);
+            eventPublisher.publish(submissionApprovedEvent);
         }
 
         return toResponse(submission);
@@ -388,18 +386,5 @@ public class SubmissionServiceImpl implements SubmissionService {
                 submission.getTask().getId().toString(),
                 submission.getStatus(),
                 createdAt);
-    }
-
-    private void publishAfterCommit(com.challengehub.event.DomainEvent event) {
-        if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    eventPublisher.publish(event);
-                }
-            });
-            return;
-        }
-        eventPublisher.publish(event);
     }
 }

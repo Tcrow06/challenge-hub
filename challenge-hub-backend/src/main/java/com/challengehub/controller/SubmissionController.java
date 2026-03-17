@@ -80,24 +80,30 @@ public class SubmissionController {
 
         @GetMapping("/me")
         public ResponseEntity<ApiResponse<List<SubmissionResponse>>> getMySubmissions(
-                        @RequestParam(name = "challenge_id", required = false) String challengeId,
+                        @RequestParam(name = "challengeId", required = false) String challengeId,
+                        @RequestParam(name = "challenge_id", required = false) String challengeIdLegacy,
                         @RequestParam(name = "status", required = false) String status,
                         @RequestParam(name = "page", defaultValue = "1") int page,
                         @RequestParam(name = "size", defaultValue = "10") int size,
                         Authentication authentication) {
+                String effectiveChallengeId = challengeId != null ? challengeId : challengeIdLegacy;
                 SubmissionService.PageResult<SubmissionResponse> result = submissionService
-                                .getMySubmissions(currentUserId(authentication), challengeId, status, page, size);
+                                .getMySubmissions(currentUserId(authentication), effectiveChallengeId, status, page,
+                                                size);
                 return ResponseEntity.ok(ApiResponse.success(result.items(), paginationMetadata(result)));
         }
 
         @GetMapping("/pending")
         public ResponseEntity<ApiResponse<List<SubmissionResponse>>> getPendingSubmissions(
-                        @RequestParam(name = "challenge_id", required = false) String challengeId,
+                        @RequestParam(name = "challengeId", required = false) String challengeId,
+                        @RequestParam(name = "challenge_id", required = false) String challengeIdLegacy,
                         @RequestParam(name = "page", defaultValue = "1") int page,
                         @RequestParam(name = "size", defaultValue = "10") int size,
                         Authentication authentication) {
+                String effectiveChallengeId = challengeId != null ? challengeId : challengeIdLegacy;
                 SubmissionService.PageResult<SubmissionResponse> result = submissionService
-                                .getPendingSubmissions(currentUserRole(authentication), challengeId, page, size);
+                                .getPendingSubmissions(currentUserRole(authentication), effectiveChallengeId, page,
+                                                size);
                 return ResponseEntity.ok(ApiResponse.success(result.items(), paginationMetadata(result)));
         }
 

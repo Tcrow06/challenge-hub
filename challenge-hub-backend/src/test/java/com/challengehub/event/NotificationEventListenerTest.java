@@ -47,17 +47,15 @@ class NotificationEventListenerTest {
                 payloadCaptor.capture());
 
         Map<String, Object> payload = payloadCaptor.getValue();
-        assertThat(payload).containsKeys("title", "message", "metadata");
-        assertThat(payload.get("metadata")).isInstanceOf(Map.class);
-
-        Map<String, Object> metadata = (Map<String, Object>) payload.get("metadata");
-        assertThat(metadata)
-                .containsEntry("submission_id", "submission-1")
-                .containsEntry("challenge_id", "challenge-1")
-                .containsEntry("task_id", "task-1")
-                .containsEntry("reviewer_id", "reviewer-1")
+        assertThat(payload)
+                .containsEntry("title", "Bài nộp đã được duyệt")
+                .containsEntry("submissionId", "submission-1")
+                .containsEntry("challengeId", "challenge-1")
+                .containsEntry("taskId", "task-1")
+                .containsEntry("reviewerId", "reviewer-1")
                 .containsEntry("score", 8)
-                .containsEntry("max_score", 10);
+                .containsEntry("maxScore", 10)
+                .containsKeys("message", "eventId", "occurredAt");
     }
 
     @Test
@@ -79,14 +77,12 @@ class NotificationEventListenerTest {
                 payloadCaptor.capture());
 
         Map<String, Object> payload = payloadCaptor.getValue();
-        assertThat(payload).containsKeys("title", "message", "metadata");
-        assertThat(payload.get("metadata")).isInstanceOf(Map.class);
-
-        Map<String, Object> metadata = (Map<String, Object>) payload.get("metadata");
-        assertThat(metadata)
-                .containsEntry("challenge_id", "challenge-1")
-                .containsEntry("participant_user_id", "user-2")
-                .containsEntry("challenge_title", "30 Day Fitness");
+        assertThat(payload)
+                .containsEntry("title", "Có người tham gia thử thách")
+                .containsEntry("challengeId", "challenge-1")
+                .containsEntry("participantUserId", "user-2")
+                .containsEntry("challengeTitle", "30 Day Fitness")
+                .containsKeys("message", "eventId", "occurredAt");
     }
 
     @Test

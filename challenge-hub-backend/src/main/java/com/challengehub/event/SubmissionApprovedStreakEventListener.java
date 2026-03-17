@@ -1,7 +1,9 @@
 package com.challengehub.event;
 
-import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import com.challengehub.service.SubmissionApprovedStreakService;
 
@@ -14,7 +16,8 @@ public class SubmissionApprovedStreakEventListener {
         this.submissionApprovedStreakService = submissionApprovedStreakService;
     }
 
-    @EventListener
+    @Async("domainEventTaskExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onSubmissionApproved(SubmissionApprovedEvent event) {
         submissionApprovedStreakService.updateStreak(event);
     }
